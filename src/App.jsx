@@ -8,8 +8,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-// import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-// import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 // Firebase Imports
 import { initializeApp } from 'firebase/app';
@@ -246,7 +244,8 @@ export default function App() {
       // 2. Prepare History
       const history = messages.slice(-10).map((msg) => ({
         role: msg.role,
-        parts: [{ text: msg.text }],
+        text: msg.text,
+        interactionId: msg.interactionId
       }));
 
       // 3. Call API
@@ -269,6 +268,7 @@ export default function App() {
       await addDoc(collection(db, 'users', user.uid, 'messages'), {
         role: "model",
         text: data.text,
+        interactionId: data.interactionId,
         timestamp: serverTimestamp(),
       });
 

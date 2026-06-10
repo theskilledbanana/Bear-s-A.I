@@ -43,7 +43,7 @@ app.post("/api/chat", async (req, res) => {
 
     const ai = getGenAI();
     
-    // Using gemini-3.5-flash as per the latest recommendations in the skill
+    // Using gemini-3.5-flash as per the latest recommendations
     const interaction = await ai.interactions.create({
       model: "gemini-3.5-flash", 
       input: message,
@@ -52,12 +52,24 @@ app.post("/api/chat", async (req, res) => {
         temperature: 0.8,
         top_p: 0.9,
       },
-      // Note: Interactions use previous_interaction_id for history, but for simple history mapping:
-      // history: history || [] 
-      // Actually, standard historical injection often works via system prompt or previous_interaction_id
+      // Chaining interactions if history is provided
+      previous_interaction_id: history && history.length > 0 ? history[history.length - 1].interactionId : undefined
     });
 
-    res.json({ text: interaction.output_text });
+    let fullOutput = "";
+    for (const step of interaction.steps) {
+      if (step.type === 'model_output') {
+        const textContent = step.content?.find(c => c.type === 'text');
+        if (textContent && textContent.text) {
+          fullOutput += textContent.text;
+        }
+      }
+    }
+
+    res.json({ 
+      text: fullOutput || interaction.output_text || "",
+      interactionId: interaction.id 
+    });
   } catch (error) {
     console.error("Chat API error:", error);
     // Be more specific in the response if possible
