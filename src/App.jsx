@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { 
   Send, User as UserIcon, Loader2, Trash2, Zap, LogOut,
   Settings, X, Save, Sparkles, Cpu, Cloud, Moon, Sun, 
@@ -9,7 +9,8 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism/index.js';
+import { prism } from 'react-syntax-highlighter/dist/esm/styles/prism/index.js';
 
 // Firebase Imports
 import { initializeApp } from 'firebase/app';
@@ -304,7 +305,7 @@ export default function App() {
     m.text.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const currentTheme = THEMES[settings.theme] || THEMES.midnight;
+  const currentTheme = useMemo(() => THEMES[settings.theme] || THEMES.midnight, [settings.theme]);
   const isLight = currentTheme.isLight;
 
   if (authLoading) return (
@@ -416,7 +417,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Experience */}
-      <main ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-8 space-y-12 max-w-5xl mx-auto w-full relative z-10 custom-scrollbar">
+      <main ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-8 space-y-12 max-w-5xl mx-auto w-full relative z-10 custom-scrollbar pb-32">
         <AnimatePresence mode="popLayout" initial={false}>
           {messages.length === 0 && !isLoading ? (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center justify-center h-full text-center space-y-8 py-20">

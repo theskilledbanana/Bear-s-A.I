@@ -45,9 +45,9 @@ app.post("/api/chat", async (req, res) => {
     
     const systemPrompt = personality || `You are '${botName}', a professional and helpful AI assistant. Always respond quickly and concisely.`;
     
-    // Using gemini-3.5-flash as per the latest recommendations
+    // Using gemini-flash-latest for stability and speed
     const chat = ai.chats.create({
-      model: "gemini-3.5-flash", 
+      model: "gemini-flash-latest", 
       config: {
         systemInstruction: systemPrompt,
       },
