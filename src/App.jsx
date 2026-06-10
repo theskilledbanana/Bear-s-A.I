@@ -9,8 +9,8 @@ import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism/index.js';
-import { prism } from 'react-syntax-highlighter/dist/esm/styles/prism/index.js';
+import atomDark from 'react-syntax-highlighter/dist/esm/styles/prism/atom-dark';
+import prism from 'react-syntax-highlighter/dist/esm/styles/prism/prism';
 
 // Firebase Imports
 import { initializeApp } from 'firebase/app';
@@ -87,7 +87,7 @@ export default function App() {
   // Settings State
   const [settings, setSettings] = useState({
     botName: "Bear",
-    personality: "You are Bear, a sharp, witty, and deeply knowledgeable digital companion. You deliver fast, concise, and helpful responses without any filler.",
+    personality: "You are Bear, an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.",
     theme: "midnight",
     icon: "sparkle"
   });
@@ -154,14 +154,14 @@ export default function App() {
         const data = docSnap.data();
         setSettings({
           botName: data.botName || "Bear",
-          personality: data.personality || "You are Bear, a sharp, witty, and deeply knowledgeable digital companion.",
+          personality: data.personality || "You are Bear, an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.",
           theme: data.theme || "midnight",
           icon: data.icon || "sparkle"
         });
       } else {
         const defaults = {
           botName: "Bear",
-          personality: "You are Bear, a sharp, witty, and deeply knowledgeable digital companion. You deliver fast, concise, and helpful responses without any filler.",
+          personality: "You are Bear, an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.",
           theme: "midnight",
           icon: "sparkle",
           userId: user.uid
@@ -277,7 +277,7 @@ export default function App() {
       console.error("Chat error:", error);
       await addDoc(collection(db, 'users', user.uid, 'messages'), {
         role: "model",
-        text: "System overload. Failed to process request.",
+        text: "Neural linkage interrupted. My sensors are a bit fuzzy right now... could you repeat that?",
         timestamp: serverTimestamp(),
       });
     } finally {

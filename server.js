@@ -43,13 +43,15 @@ app.post("/api/chat", async (req, res) => {
 
     const ai = getGenAI();
     
-    const systemPrompt = personality || `You are '${botName}', a professional and helpful AI assistant. Always respond quickly and concisely.`;
+    const systemPrompt = personality || `You are '${botName}', an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.`;
     
-    // Using gemini-flash-latest for stability and speed
+    // Using gemini-3.5-flash for maximum speed and intelligence
     const chat = ai.chats.create({
-      model: "gemini-flash-latest", 
+      model: "gemini-3.5-flash", 
       config: {
         systemInstruction: systemPrompt,
+        temperature: 0.8,
+        topP: 0.9,
       },
       history: history || []
     });
