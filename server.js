@@ -57,25 +57,9 @@ async function setupVite() {
     console.log("Starting server in DEVELOPMENT mode (Vite Middleware)");
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "custom", // Use 'custom' to handle index.html manually for more control
+      appType: "spa", // Use 'spa' for better handled module transformations
     });
     app.use(vite.middlewares);
-
-    app.get("*", async (req, res, next) => {
-      const url = req.originalUrl;
-      try {
-        // Only serve index.html for non-API, non-asset routes
-        if (url.startsWith('/api') || url.includes('.')) {
-          return next();
-        }
-        let template = fs.readFileSync(path.resolve(process.cwd(), "index.html"), "utf-8");
-        template = await vite.transformIndexHtml(url, template);
-        res.status(200).set({ "Content-Type": "text/html" }).end(template);
-      } catch (e) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
   } else {
     console.log("Starting server in PRODUCTION mode (Static Serving)");
     const distPath = path.join(process.cwd(), "dist");
