@@ -44,6 +44,14 @@ app.get("/", (req, res) => {
 });
 
 // API Routes FIRST - Handle both root and subpath for flexibility
+app.get(["/api/health", "/Bears-AI/api/health"], (req, res) => {
+  res.json({ 
+    status: "ok", 
+    apiKey: process.env.GEMINI_API_KEY ? "Present" : "Missing",
+    nodeEnv: process.env.NODE_ENV || "development"
+  });
+});
+
 app.post(["/api/summarize", "/Bears-AI/api/summarize"], async (req, res) => {
   try {
     const { message } = req.body;
@@ -68,21 +76,23 @@ app.post(["/api/summarize", "/Bears-AI/api/summarize"], async (req, res) => {
 });
 
 app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
-  console.log(`[CHAT] POST request received. Path: ${req.path}`);
+  const requestId = Math.random().toString(36).substring(7);
+  console.log(`[${requestId}] [CHAT] POST request received. Path: ${req.path}`);
   try {
     const { message, history, personality, botName = "Unlimited AI", style = "balanced" } = req.body;
     
     if (!message) {
-      console.warn("[CHAT] Rejecting request: Message missing");
+      console.warn(`[${requestId}] [CHAT] Rejecting request: Message missing`);
       return res.status(400).json({ error: "Message is required" });
     }
     
-    console.log(`[CHAT] Processing message: "${message.substring(0, 50)}..."`);
+    console.log(`[${requestId}] [CHAT] Message: "${message.substring(0, 50)}..."`);
+    console.log(`[${requestId}] [CHAT] History length: ${history?.length || 0}`);
     
     // Check if it's an image generation request
     const lowerMsg = message.toLowerCase();
     if (lowerMsg.startsWith("/image ") || lowerMsg.startsWith("generate image ") || lowerMsg.startsWith("draw ")) {
-      console.log("[CHAT] Image generation request detected");
+      console.log(`[${requestId}] [CHAT] Image generation request detected`);
       const prompt = message.replace(/^\/image |^generate image |^draw /i, "");
       const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&model=flux`;
       return res.json({ 
@@ -90,8 +100,9 @@ app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
       });
     }
 
+    console.log(`[${requestId}] [CHAT] Initializing AI client...`);
     const ai = getGenAI();
-    console.log("[CHAT] Gemini client initialized");
+    console.log(`[${requestId}] [CHAT] Gemini client initialized`);
     
     // Style-specific modifiers
     const styleModifiers = {
@@ -132,14 +143,26 @@ app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
       },
     });
 
-    res.json({ text: result.response.text() || "" });
+    if (!result.response) {
+      throw new Error("Empty response object from Gemini");
+    }
+
+    const aiText = result.response.text();
+    console.log(`[${requestId}] [CHAT] Response generated: ${aiText.substring(0, 50)}...`);
+    res.json({ text: aiText });
   } catch (error) {
-    console.error("Chat API error:", error);
+    console.error(`[${requestId}] [CHAT] Error:`, error);
+    
+    // Check for safety filter errors
+    if (error.message?.includes("finishReason: SAFETY")) {
+      return res.status(400).json({ error: "The response was blocked by safety filters. Try a different topic." });
+    }
+
     const status = error.status || 500;
     let message = error.message || "Internal system error";
     
-    if (message.includes("API key not valid")) {
-      return res.status(401).json({ error: "AI service is not configured. Missing API key." });
+    if (message.includes("API key not valid") || message.includes("API_KEY_INVALID")) {
+      return res.status(401).json({ error: "AI service is not configured. Missing or invalid API key." });
     }
     
     res.status(status).json({ error: message });

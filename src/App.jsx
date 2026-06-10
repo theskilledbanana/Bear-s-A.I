@@ -294,16 +294,15 @@ function AppContent() {
     const targetChatId = activeChatId;
 
     try {
-      const baseUrl = import.meta.env.BASE_URL || "/";
-      const apiPath = `${baseUrl}api/chat`.replace(/\/+/g, '/');
+      console.log(`[4] Fetching from relative endpoint: api/chat`);
+      console.log("[5] Payload message:", userMsg);
       
-      console.log(`Connecting to neural node: ${apiPath}`);
       const history = currentHistory.slice(-15).map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         text: msg.text
       }));
 
-      const response = await fetch(apiPath, {
+      const response = await fetch("api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -316,31 +315,33 @@ function AppContent() {
         signal: abortControllerRef.current.signal
       });
 
-      console.log(`Neural Sync Response - Status: ${response.status} ${response.statusText}`);
-
+      console.log(`[6] Response received: ${response.status} ${response.statusText}`);
       if (!response.ok) {
         let errorData = null;
         try {
           errorData = await response.json();
+          console.error("[ER] Error Response JSON:", errorData);
         } catch (e) {
-          console.warn("Failed to parse error response JSON");
+          console.warn("[ER] Failed to parse error response JSON");
         }
 
-        let errorMsg = errorData?.error || "Something went wrong sending your message. Please try again.";
+        let errorMsg = errorData?.error || "Something went wrong. Try again.";
         
-        if (response.status === 429) {
+        if (response.status === 404) {
+          errorMsg = `API endpoint not found. Ensure server routes match.`;
+        } else if (response.status === 429) {
           errorMsg = "Too many requests. Please wait and try again.";
         } else if (response.status === 401 || response.status === 403) {
           errorMsg = "AI service is not configured. Missing or invalid API key.";
         } else if (response.status === 500 && !errorData?.error) {
-          errorMsg = "Internal Server Error. Please check terminal logs.";
+          errorMsg = "Server error. Please try again later.";
         }
         
         throw new Error(errorMsg);
       }
 
       const data = await response.json();
-      console.log("Response data received successfully");
+      console.log("[7] Success! Response data:", data);
 
       const aiMessage = {
         role: "model",
@@ -359,10 +360,8 @@ function AppContent() {
 
       // Trigger auto-titling if it's the first exchange
       if (currentHistory.length === 0) {
-        const baseUrl = import.meta.env.BASE_URL || "/";
-        const summaryPath = `${baseUrl}api/summarize`.replace(/\/+/g, '/');
-        
-        fetch(summaryPath, {
+        console.log("[8] Triggering auto-titling...");
+        fetch("api/summarize", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: userMsg })
@@ -463,10 +462,11 @@ function AppContent() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("Submit triggered. Input state:", input);
+    console.log("[1] Submit triggered. Current input:", input);
     
-    if (!input.trim()) {
-      console.warn("Empty input, ignoring.");
+    const textToSend = input.trim();
+    if (!textToSend) {
+      console.warn("Input is empty, ignoring.");
       return;
     }
     
@@ -483,20 +483,21 @@ function AppContent() {
 
     const userMessage = {
       role: "user",
-      text: input.trim(),
+      text: textToSend,
       id: Date.now().toString(),
       timestamp: new Date().toISOString()
     };
     
-    const textToSend = input.trim();
-    console.log(`Sending message: "${textToSend}" to chat ${currentChatId}`);
+    console.log("[2] Adding user message to state:", userMessage);
     setInput("");
     
+    // Capture the history BEFORE updating state to pass to the API
+    const historyBeforeUpdate = [...messages];
+
     setChats(prev => prev.map(c => {
       if (c.id === currentChatId) {
         const newMsgs = [...c.messages, userMessage];
         let title = c.title;
-        // Improve title generation logic
         if (title === "New Chat") {
           title = textToSend.split(' ').slice(0, 6).join(' ') + (textToSend.split(' ').length > 6 ? "..." : "");
         }
@@ -505,8 +506,8 @@ function AppContent() {
       return c;
     }));
 
-    // Use a small timeout to ensure state has settled and scroll happened
-    setTimeout(() => fetchAIResponse(textToSend, messages), 10);
+    console.log("[3] Triggering fetchAIResponse");
+    fetchAIResponse(textToSend, historyBeforeUpdate);
   };
 
   const clearMemory = () => {
