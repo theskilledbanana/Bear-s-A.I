@@ -55,29 +55,42 @@ const STYLES = [
 const SUGGESTIONS = [
   "Explain quantum physics like I'm 5",
   "Generate image of a neon cyberpunk city",
-  "Write a sarcastic story about a bear",
+  "Write an alternate history about Rome",
   "Fix this bug: console.log('hello');",
   "Draw a futuristic space station"
 ];
 
-const BOT_AVATAR = "/Bears-AI/favicon.png";
+const BOT_AVATAR = "favicon.png";
 
 const markdownComponents = {
   code({ node, inline, className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '');
     return !inline && match ? (
-      <SyntaxHighlighter
-        style={vscDarkPlus}
-        language={match[1]}
-        PreTag="div"
-        {...props}
-      >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
+      <div className="relative group">
+        <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button onClick={() => navigator.clipboard.writeText(String(children))} className="p-1 px-2 bg-white/10 hover:bg-white/20 rounded text-[9px] font-black uppercase text-white/60">Copy</button>
+        </div>
+        <SyntaxHighlighter
+          style={vscDarkPlus}
+          language={match[1]}
+          PreTag="div"
+          {...props}
+        >
+          {String(children).replace(/\n$/, '')}
+        </SyntaxHighlighter>
+      </div>
     ) : (
       <code className={className} {...props}>
         {children}
       </code>
+    );
+  },
+  img({ alt, src, ...props }) {
+    return (
+      <div className="my-4 rounded-xl overflow-hidden border border-white/10 shadow-2xl bg-black/20">
+        <img alt={alt} src={src} className="w-full h-auto object-cover select-none" referrerPolicy="no-referrer" {...props} />
+        {alt && alt !== "Generated Image" && <div className="bg-black/40 px-4 py-2 text-[10px] uppercase font-black tracking-widest text-white/40">{alt}</div>}
+      </div>
     );
   }
 };
@@ -107,7 +120,36 @@ const Typewriter = ({ text, onComplete }) => {
   return <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{displayedText}</ReactMarkdown>;
 };
 
-export default function App() {
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Critical UI Crash:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen bg-[#050507] flex items-center justify-center p-6 text-center">
+          <div className="max-w-md space-y-6">
+            <div className="p-6 bg-rose-500/10 rounded-full inline-block mb-4"><Info size={48} className="text-rose-500" /></div>
+            <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">Connection Lost</h1>
+            <p className="text-slate-400 text-sm">The application encountered a conflict. Your session data is safe in local storage.</p>
+            <button onClick={() => window.location.reload()} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic">Reload Interface</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppContent() {
   const [chats, setChats] = useState(() => {
     const saved = localStorage.getItem('unlimited_ai_chats_v4');
     if (saved) return JSON.parse(saved);
@@ -148,9 +190,16 @@ export default function App() {
     };
   });
 
+  const inputRef = useRef(null);
   const scrollRef = useRef(null);
   const activeChat = chats.find(c => c.id === activeChatId) || chats[0];
   const messages = activeChat?.messages || [];
+
+  useEffect(() => {
+    if (!isLoading && !needsName && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [activeChatId, isLoading, needsName]);
 
   useEffect(() => {
     localStorage.setItem('unlimited_ai_chats_v4', JSON.stringify(chats));
@@ -170,13 +219,24 @@ export default function App() {
     localStorage.setItem('app_settings_v3', JSON.stringify(settings));
   }, [settings]);
 
+  useEffect(() => {
+    if (chats.length === 0) {
+      createNewChat();
+    } else if (!activeChatId || !chats.find(c => c.id === activeChatId)) {
+      setActiveChatId(chats[0].id);
+    }
+  }, [chats, activeChatId]);
+
   const updateChatMessages = (chatId, newMessages) => {
     setChats(prev => prev.map(c => {
       if (c.id === chatId) {
         let title = c.title;
-        // Auto-generate title from first message
-        if (title === "New Chat" && newMessages.length > 0 && newMessages[0].role === 'user') {
-          title = newMessages[0].text.substring(0, 30) + (newMessages[0].text.length > 30 ? "..." : "");
+        // Auto-generate title from first message if it's currently "New Chat"
+        if (title === "New Chat" && newMessages.length > 0) {
+          const firstUserMsg = newMessages.find(m => m.role === 'user');
+          if (firstUserMsg) {
+            title = firstUserMsg.text.slice(0, 40).trim() + (firstUserMsg.text.length > 40 ? "..." : "");
+          }
         }
         return { ...c, messages: newMessages, title };
       }
@@ -234,13 +294,16 @@ export default function App() {
     const targetChatId = activeChatId;
 
     try {
-      console.log("Initiating AI request for segment:", userMsg.substring(0, 50));
+      const baseUrl = import.meta.env.BASE_URL || "/";
+      const apiPath = `${baseUrl}api/chat`.replace(/\/+/g, '/');
+      
+      console.log(`Connecting to neural node: ${apiPath}`);
       const history = currentHistory.slice(-15).map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
         text: msg.text
       }));
 
-      const response = await fetch("api/chat", {
+      const response = await fetch(apiPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -284,6 +347,23 @@ export default function App() {
         }
         return c;
       }));
+
+      // Trigger auto-titling if it's the first exchange
+      if (currentHistory.length === 0) {
+        const baseUrl = import.meta.env.BASE_URL || "/";
+        const summaryPath = `${baseUrl}api/summarize`.replace(/\/+/g, '/');
+        
+        fetch(summaryPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: userMsg })
+        }).then(res => res.json())
+          .then(data => {
+            if (data.title) {
+              setChats(prev => prev.map(c => c.id === targetChatId ? { ...c, title: data.title } : c));
+            }
+          }).catch(err => console.warn("Auto-titling failed:", err));
+      }
     } catch (error) {
       if (error.name === 'AbortError') {
         console.log("Request aborted.");
@@ -372,7 +452,23 @@ export default function App() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    console.log("Submit triggered. Input state:", input);
+    
+    if (!input.trim()) {
+      console.warn("Empty input, ignoring.");
+      return;
+    }
+    
+    if (isLoading) {
+      console.warn("Already loading, ignoring.");
+      return;
+    }
+
+    const currentChatId = activeChatId;
+    if (!currentChatId) {
+      console.error("No active chat ID found!");
+      return;
+    }
 
     const userMessage = {
       role: "user",
@@ -381,11 +477,24 @@ export default function App() {
       timestamp: new Date().toISOString()
     };
     
-    const currentInput = input.trim();
+    const textToSend = input.trim();
     setInput("");
-    const newMsgs = [...messages, userMessage];
-    updateChatMessages(activeChatId, newMsgs);
-    fetchAIResponse(currentInput, newMsgs);
+    
+    setChats(prev => prev.map(c => {
+      if (c.id === currentChatId) {
+        const newMsgs = [...c.messages, userMessage];
+        let title = c.title;
+        // Improve title generation logic
+        if (title === "New Chat") {
+          title = textToSend.split(' ').slice(0, 6).join(' ') + (textToSend.split(' ').length > 6 ? "..." : "");
+        }
+        return { ...c, messages: newMsgs, title };
+      }
+      return c;
+    }));
+
+    // Use a small timeout to ensure state has settled and scroll happened
+    setTimeout(() => fetchAIResponse(textToSend, [...messages, userMessage]), 10);
   };
 
   const clearMemory = () => {
@@ -406,7 +515,7 @@ export default function App() {
           <h1 className="text-3xl font-black text-white mb-2 uppercase italic tracking-tighter">Unlimited AI</h1>
           <p className="text-slate-500 mb-2 text-sm font-medium">ChatGPT Pro Features • No Limits • Free Forever</p>
           <div className="bg-indigo-500/10 text-indigo-400 text-[10px] font-black py-1 px-3 rounded-full inline-block mb-8 uppercase tracking-widest border border-indigo-500/20">Alpha Access: Unrestricted</div>
-          <p className="text-slate-500 mb-8 text-sm font-medium">Identify yourself to sync neural nodes.</p>
+          <p className="text-slate-500 mb-8 text-sm font-medium">Verify your session identity below.</p>
           <form onSubmit={(e) => {
             e.preventDefault();
             const name = e.target.name.value.trim();
@@ -416,8 +525,8 @@ export default function App() {
               setNeedsName(false);
             }
           }} className="space-y-4">
-            <input name="name" required autoFocus placeholder="Your Name" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 text-center" />
-            <button type="submit" className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic">Initiate Link</button>
+            <input name="name" required autoFocus placeholder="Enter Your Name" className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:ring-2 focus:ring-indigo-500/50 text-center" />
+            <button type="submit" className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic">Start Chatting</button>
           </form>
         </motion.div>
       </div>
@@ -484,7 +593,9 @@ export default function App() {
               <LayoutGrid size={20} />
             </button>
             <div className="flex items-center gap-3">
-              <img src={BOT_AVATAR} className="w-10 h-10 rounded-xl ring-2 ring-indigo-500/50" alt="Bot" />
+              <div className="w-10 h-10 rounded-xl ring-2 ring-indigo-500/50 overflow-hidden flex items-center justify-center bg-indigo-500">
+                <img src={BOT_AVATAR} className="w-full h-full object-cover" alt="Bot" />
+              </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-lg font-black tracking-tighter uppercase italic">{settings.botName}</h1>
@@ -498,16 +609,19 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl">
-            {STYLES.map(s => (
-              <button 
-                key={s.id} 
-                onClick={() => setSettings({...settings, responseStyle: s.id})}
-                className={cn("px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", settings.responseStyle === s.id ? "bg-indigo-500 text-white" : "text-white/40 hover:text-white")}
-              >
-                {s.icon} {s.label}
-              </button>
-            ))}
-            <div className="w-px h-4 bg-white/10 mx-1" />
+            <button onClick={createNewChat} className="md:hidden p-1.5 hover:bg-white/10 rounded-lg text-indigo-400 transition-all border border-indigo-500/20 mr-1"><PlusCircle size={18} /></button>
+            <div className="hidden sm:flex items-center gap-1">
+              {STYLES.map(s => (
+                <button 
+                  key={s.id} 
+                  onClick={() => setSettings({...settings, responseStyle: s.id})}
+                  className={cn("px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all flex items-center gap-1.5", settings.responseStyle === s.id ? "bg-indigo-500 text-white" : "text-white/40 hover:text-white")}
+                >
+                  {s.icon} {s.label}
+                </button>
+              ))}
+            </div>
+            <div className="hidden sm:block w-px h-4 bg-white/10 mx-1" />
             <button onClick={() => setShowSettings(true)} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all"><Settings size={16} /></button>
           </div>
         </header>
@@ -606,7 +720,20 @@ export default function App() {
           <div className="max-w-4xl mx-auto relative">
             <form onSubmit={handleSubmit} className="flex gap-3">
               <div className="relative flex-1">
-                <input value={input} onChange={(e) => setInput(e.target.value)} disabled={isLoading} placeholder={`Message ${settings.botName}...`} className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 transition-all text-lg font-medium shadow-2xl" />
+                <input 
+                  ref={inputRef}
+                  value={input} 
+                  onChange={(e) => setInput(e.target.value)} 
+                  disabled={isLoading} 
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                  placeholder={`Message ${settings.botName}...`} 
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500/50 transition-all text-lg font-medium shadow-2xl" 
+                />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                   {isLoading && (
                     <button type="button" onClick={stopResponse} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all flex items-center gap-2 border border-rose-500/20 px-3">
@@ -658,7 +785,16 @@ export default function App() {
         .splash-bg { background-image: radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 80%); }
         .prose pre { padding: 0 !important; margin: 1em 0 !important; overflow: hidden !important; border-radius: 12px !important; }
         .prose blockquote { border-left-color: #6366f1 !important; }
+        .prose img { margin: 0 !important; }
       `}</style>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
   );
 }

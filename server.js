@@ -41,6 +41,29 @@ app.get("/", (req, res) => {
 });
 
 // API Routes FIRST - Handle both root and subpath for flexibility
+app.post(["/api/summarize", "/Bears-AI/api/summarize"], async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: "Message is required" });
+    
+    const ai = getGenAI();
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    const prompt = `Summarize this user message into a very short, punchy chat title (max 5 words). No punctuation, keep it professional.
+    Message: ${message}`;
+    
+    const result = await model.generateContent(prompt);
+    let title = result.response.text().trim();
+    // Clean up title (remove quotes if any)
+    title = title.replace(/^["']|["']$/g, '');
+    
+    res.json({ title });
+  } catch (error) {
+    console.error("Summarize error:", error);
+    res.status(500).json({ error: "Failed to summarize" });
+  }
+});
+
 app.post(["/api/chat", "/Bears-AI/api/chat"], async (req, res) => {
   try {
     const { message, history, personality, botName = "Unlimited AI", style = "balanced" } = req.body;

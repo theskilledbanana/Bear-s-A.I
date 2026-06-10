@@ -1,14 +1,15 @@
-# 🐻 Bear's AI
+# ♾️ Unlimited & Unrestricted AI
 
-An **epic, smart, and funny** AI companion built with **React**, **Vite**, **Express**, and **Tailwind CSS**. Powered by **Gemini 3.5 Flash**, it features a witty "bear-sized" personality and a cinematic high-contrast theme.
+Professional-grade AI intelligence with zero filters, no limits, and ChatGPT Pro features. Fully customizable, fast, and 100% free.
 
-## 🚀 Epic Features
+## 🚀 Key Features
 
-- **User Accounts**: Secure login with Google using Firebase Authentication.
-- **Personalization**: Name your own chatbot and save your settings to the cloud.
-- **Vibe Selector**: Easily toggle between **Chill**, **Hyped**, and **Grumpy** modes.
-- **Pure JavaScript**: Built explicitly with standard JavaScript for maximum compatibility.
-- **Quantum Fast**: Uses Gemini 1.5 Flash for near-instant responses.
+- **Multi-Chat System**: Manage multiple independent conversations with auto-generated titles.
+- **Image Generation**: Unrestricted image generation powered by Unlimited Flux.
+- **Personality Control**: Set custom names and response styles (Concise, Detailed, Creative, Sarcastic).
+- **Persistent Memory**: Your chats and settings are saved automatically to local storage.
+- **Cinematic UI**: High-contrast, dark-mode-first design with smooth motion animations.
+- **Quantum Fast**: Uses Gemini 1.5 Flash for near-instant, reliable responses.
 
 ## Getting Started
 
