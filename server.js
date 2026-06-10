@@ -43,9 +43,9 @@ app.post("/api/chat", async (req, res) => {
 
     const ai = getGenAI();
     
-    // Using gemini-1.5-flash for reliability and speed
+    // Using gemini-3.5-flash as per the latest recommendations
     const interaction = await ai.interactions.create({
-      model: "gemini-1.5-flash", 
+      model: "gemini-3.5-flash", 
       input: message,
       system_instruction: personality || `You are '${botName}', an epic, witty, and slightly chaotic digital companion. You deliver sharp, clever responses with a side of sarcasm and bear-themed puns. You're helpfully unhinged—think 'Genius Grizzly with a keyboard'. Keep it fast, funny, and uniquely yours.`,
       generation_config: {

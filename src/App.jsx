@@ -77,7 +77,47 @@ const ICONS = {
   terminal: { icon: <Terminal size={24} />, label: "Code" }
 };
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("React Error Boundary caught:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen bg-[#050507] flex items-center justify-center p-10 font-sans">
+          <div className="max-w-2xl w-full bg-rose-500/10 border border-rose-500/20 p-8 rounded-3xl">
+            <h1 className="text-2xl font-black text-rose-500 mb-4 uppercase italic">React_Component_Crash</h1>
+            <p className="text-white/60 mb-6 text-sm">{this.state.error?.message || "Unknown rendering error"}</p>
+            <pre className="bg-black/40 p-4 rounded-xl text-[10px] text-white/40 overflow-auto max-h-40">
+              {this.state.error?.stack}
+            </pre>
+            <button onClick={() => window.location.reload()} className="mt-8 px-6 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-all">
+              Reload Interface
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
+  );
+}
+
+function MainApp() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [messages, setMessages] = useState([]);
