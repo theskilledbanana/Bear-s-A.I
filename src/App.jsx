@@ -66,10 +66,8 @@ const SUGGESTIONS = [
   "Draw a futuristic space station"
 ];
 
-// MISSION CRITICAL: The favicon.png and AI icon MUST NOT be changed or replaced. 
-// These are fixed assets provided by the developer and are strictly READ-ONLY.
-// Use only the literal original files (e.g., /favicon.png).
-const BOT_AVATAR = "/favicon.png";
+// MISSION CRITICAL: The favicon.png and AI icon are protected identity assets.
+// They can be customized via the Settings menu.
 
 const markdownComponents = {
   code({ node, inline, className, children, ...props }) {
@@ -259,9 +257,12 @@ function AppContent() {
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [isClearing, setIsClearing] = useState(false);
+  const [botAvatar, setBotAvatar] = useState("/favicon.png");
 
   useEffect(() => {
     FaviconManager.load();
+    const saved = localStorage.getItem('unlimited_favicon_v5');
+    if (saved) setBotAvatar(saved);
   }, []);
 
   const handleFaviconUpload = (e) => {
@@ -270,6 +271,7 @@ function AppContent() {
       const reader = new FileReader();
       reader.onloadend = () => {
         FaviconManager.update(reader.result);
+        setBotAvatar(reader.result);
       };
       reader.readAsDataURL(file);
     }
@@ -858,7 +860,7 @@ function AppContent() {
             </button>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl ring-2 ring-indigo-500/50 overflow-hidden flex items-center justify-center bg-indigo-500">
-                <img src={BOT_AVATAR} className="w-full h-full object-cover" alt="Bot" />
+                <img src={botAvatar} className="w-full h-full object-cover" alt="Bot" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -922,7 +924,7 @@ function AppContent() {
                     {msg.role === "user" ? (
                       userPfp ? <img src={userPfp} className="w-full h-full object-cover" alt="User" /> : <UserIcon size={18} className="text-white/60" />
                     ) : (
-                      <img src={BOT_AVATAR} className="w-7 h-7" alt="Bot" />
+                      <img src={botAvatar} className="w-7 h-7" alt="Bot" />
                     )}
                   </div>
                     <div className="relative max-w-[85%] space-y-2">
@@ -1069,7 +1071,7 @@ function AppContent() {
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Custom Icon</label>
                     <div className="relative group w-full h-32 bg-white/5 border border-dashed border-white/20 rounded-2xl flex items-center justify-center overflow-hidden">
-                      <LayoutGrid size={32} className="text-white/20" />
+                      <img src={botAvatar} className="w-full h-full object-contain opacity-40 group-hover:opacity-100 transition-opacity" alt="Favicon" />
                       <input type="file" accept=".png,.ico,.svg" onChange={handleFaviconUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
                     </div>
                     <button onClick={FaviconManager.reset} className="text-[8px] font-black uppercase text-rose-500 hover:underline">Reset to Default</button>
