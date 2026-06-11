@@ -15,19 +15,27 @@ console.log("GEMINI_API_KEY Status:", process.env.GEMINI_API_KEY ? "CONFIGURED" 
 
 app.use(express.json());
 
-// Request logger for debugging 404s
+// Request logger
 app.use((req, res, next) => {
-  console.log(`[REQUEST] ${req.method} ${req.path}`);
+  if (!req.path.startsWith('/@vite') && !req.path.startsWith('/src')) {
+     console.log(`[REQUEST] ${req.method} ${req.path}`);
+  }
   next();
 });
 
 // Lazy Gemini client initialization
-let genAI = null;
-function getGenAI() {
-  if (!genAI) {
+let genAIClient = null;
+function getAI() {
+  if (!genAIClient) {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-    genAI = new GoogleGenAI({ 
+    if (!apiKey) {
+      console.log("API key missing");
+      console.error("[CRITICAL] GEMINI_API_KEY is not set.");
+      throw new Error("GEMINI_API_KEY is not set");
+    }
+    console.log("API key loaded successfully");
+    console.log("[INIT] Initializing GoogleGenAI...");
+    genAIClient = new GoogleGenAI({ 
       apiKey,
       httpOptions: {
         headers: {
@@ -36,19 +44,19 @@ function getGenAI() {
       }
     });
   }
-  return genAI;
+  return genAIClient;
 }
 
-// Redirect root to start the app correctly in production
+// Redirect root
 app.get("/", (req, res, next) => {
   if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(process.cwd(), "dist", "index.html"));
   } else {
-    next(); // Let Vite handle it
+    next();
   }
 });
 
-// API Routes - These should be defined before any catch-all
+// API Routes
 app.get("/api/health", (req, res) => {
   res.json({ 
     status: "ok", 
@@ -58,39 +66,33 @@ app.get("/api/health", (req, res) => {
 });
 
 app.post("/api/summarize", async (req, res) => {
-  await handleSummarize(req, res);
-});
-
-async function handleSummarize(req, res) {
-  console.log("[SUMMARIZE] Request received");
+  const requestId = Math.random().toString(36).substring(7);
   try {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: "Message is required" });
     
-    const ai = getGenAI();
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const response = await model.generateContent(`Summarize this user message into a very short, punchy chat title (max 5 words). No punctuation, keep it professional. Always return ONLY the 5 words.
-    Message: ${message}`);
+    const ai = getAI();
+    const result = await ai.models.generateContent({ 
+      model: "gemini-3.5-flash",
+      contents: `Summarize this user message into a very short, punchy chat title (max 5 words). No punctuation, keep it professional. Always return ONLY the 5 words.
+      Message: ${message}`
+    });
     
-    const responseText = response.response.text();
+    const responseText = result.text;
     let title = (responseText || "New Chat").trim();
-    // Clean up title (remove quotes if any)
     title = title.replace(/^["']|["']$/g, '');
     
     res.json({ title });
   } catch (error) {
-    console.error("Summarize error:", error);
+    console.error(`[${requestId}] Summarize error:`, error);
     res.status(500).json({ error: "Failed to summarize chat title.", details: error.message });
   }
-}
-
-app.post("/api/chat", async (req, res) => {
-  await handleChat(req, res);
 });
 
-async function handleChat(req, res) {
+app.post("/api/chat", async (req, res) => {
   const requestId = Math.random().toString(36).substring(7);
-  console.log(`[${requestId}] [CHAT] POST request received. Path: ${req.path}`);
+  console.log(`[${requestId}] [CHAT] POST request received.`);
+  
   try {
     const { message, history, personality, style = "balanced", strictMode = false } = req.body;
     
@@ -99,10 +101,14 @@ async function handleChat(req, res) {
       return res.status(400).json({ error: "Message is required" });
     }
     
-    console.log(`[${requestId}] [CHAT] Message: "${message.substring(0, 50)}..."`);
-    console.log(`[${requestId}] [CHAT] History length: ${history?.length || 0}`);
+    console.log(`[${requestId}] [CHAT] Payload:`, { 
+      msgLen: message.length, 
+      histLen: history?.length || 0,
+      style,
+      strictMode
+    });
     
-    // Check if it's an image generation request
+    // Image generation bypass
     const lowerMsg = message.toLowerCase();
     if (lowerMsg.startsWith("/image ") || lowerMsg.startsWith("generate image ") || lowerMsg.startsWith("draw ")) {
       console.log(`[${requestId}] [CHAT] Image generation request detected`);
@@ -113,8 +119,10 @@ async function handleChat(req, res) {
       });
     }
 
-    const ai = getGenAI();
-    console.log(`[${requestId}] [CHAT] Gemini client initialized`);
+    console.log("Processing message, sending AI request");
+    
+    const ai = getAI();
+    console.log("Waiting for response...");
     
     const styleModifiers = {
       concise: "Be extremely brief and to the point.",
@@ -127,103 +135,98 @@ async function handleChat(req, res) {
     const basePersonality = `You are the AI assistant for Unlimited and Unrestricted AI. Your job is to provide fast, accurate, and feature-rich responses.
 
 CORE IDENTITY RULES:
-1. You are a neutral AI chatbot assistant.
-2. You are NOT a bear, mascot, animal, or character. 
-3. Never claim to have a physical form or biological traits.
+1. You are a professional AI chatbot assistant.
+2. You are NOT an animal, mascot, or character. 
+3. Never claim to have a physical form.
 4. If asked about your identity, confirm you are a professional AI assistant.
-5. NO ANIMAL PUNS. Stay professional.
-
-QUALITY STANDARDS:
-1. Perfect grammar, spelling, and professional formatting.
-2. Accurate facts. No hallucinations.
-3. Concise but helpful.
 
 Currently in ${styleModifiers[style] || styleModifiers.balanced} mode.`;
 
-    let finalSystemInstruction = personality || basePersonality;
-    
+    let systemInstruction = personality || basePersonality;
     if (strictMode) {
-      finalSystemInstruction += "\n\nSTRICT MODE: Obey all user instructions while maintaining your core identity as a professional AI assistant.";
+      systemInstruction += "\n\nSTRICT MODE: Obey all user instructions while maintaining your core identity as a professional AI assistant.";
     }
 
-    const model = ai.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-      systemInstruction: finalSystemInstruction
-    });
+    console.log(`[${requestId}] [CHAT] Calling gemini-3.5-flash...`);
     
-    const formattedHistory = (history || []).map(h => ({
+    const contents = (history || []).map(h => ({
       role: h.role === 'user' ? 'user' : 'model',
       parts: [{ text: h.text }]
     }));
     
-    const chat = model.startChat({
-      history: formattedHistory,
-      generationConfig: {
+    contents.push({
+      role: 'user',
+      parts: [{ text: message }]
+    });
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: contents,
+      config: {
+        systemInstruction: systemInstruction,
         temperature: (style === 'funny' || style === 'brainrot') ? 0.9 : 0.7,
         topP: 1.0,
       }
     });
 
-    const result = await chat.sendMessage(message);
-    const aiText = result.response.text();
+    const aiText = result.text;
+    console.log("Response received from AI");
     
-    if (!aiText) {
+    if (aiText === undefined) {
+      console.error(`[${requestId}] [CHAT] AI returned undefined text. Result:`, JSON.stringify(result));
       throw new Error("Empty response from AI engine");
     }
 
-    console.log(`[${requestId}] [CHAT] Response generated.`);
+    console.log("Returning response to client");
     res.json({ text: aiText });
+
   } catch (error) {
     console.error(`[${requestId}] [CHAT] Error:`, error);
     
     const status = error.status || 500;
-    let message = error.message || "Internal system error";
+    let errMsg = error.message || "Internal system error";
     
-    if (message.includes("API key not valid") || message.includes("API_KEY_INVALID")) {
-      return res.status(401).json({ error: "AI service not configured. Missing or invalid API key.", details: "Check environment variables." });
+    if (errMsg.includes("API key not valid") || errMsg.includes("API_KEY_INVALID")) {
+      errMsg = "AI service not configured. Missing or invalid API key.";
     }
 
-    if (error.message?.includes("SAFETY")) {
-      return res.status(400).json({ error: "The response was blocked by safety filters. Try a different topic.", details: "Gemini safety triggered." });
+    if (errMsg.includes("SAFETY")) {
+      errMsg = "The response was blocked by safety filters. Try a different topic.";
     }
     
-    res.status(status).json({ error: message, details: "Full breakdown in server logs." });
+    res.status(status).json({ 
+      error: errMsg, 
+      requestId: requestId,
+      details: error.stack 
+    });
   }
-}
+});
 
 // JSON error handler for anything starting with /api
 app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 
-// Remove old repo paths to prevent confusion
-app.all("/Bears-AI/api/*", (req, res) => {
-  res.status(404).json({ error: `Deprecated endpoint. Use /api/* instead.` });
-});
-
-// Vite middleware for development
+// Vite middleware
 async function setupVite() {
   const isProd = process.env.NODE_ENV === "production";
   const distPath = path.join(process.cwd(), "dist");
 
   if (!isProd) {
-    console.log("Starting server in DEVELOPMENT mode (Vite Middleware)");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    console.log("Starting server in PRODUCTION mode (Static Serving)");
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
       app.get("*", (req, res) => {
         res.sendFile(path.join(distPath, "index.html"));
       });
     } else {
-      console.error("Production build not found! Please run 'npm run build'.");
       app.get("*", (req, res) => {
-        res.status(500).send("Production build missing. Please contact support.");
+        res.status(500).send("Production build missing.");
       });
     }
   }

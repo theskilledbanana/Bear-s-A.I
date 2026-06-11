@@ -415,6 +415,7 @@ function AppContent() {
   const [userName, setUserName] = useState(() => localStorage.getItem('user_name_v3') || "");
   const [userPfp, setUserPfp] = useState(() => localStorage.getItem('user_pfp_v3') || "");
   const [editingId, setEditingId] = useState(null);
+
   const [editInput, setEditInput] = useState("");
   const [renameChatId, setRenameChatId] = useState(null);
   const [renameInput, setRenameInput] = useState("");
@@ -556,6 +557,9 @@ function AppContent() {
   };
 
   const fetchAIResponse = async (userMsg, currentHistory = messages, targetChatId = activeChatId) => {
+    console.log("User message received:", userMsg);
+    console.log("Creating AI request for chat:", targetChatId);
+    
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     
@@ -569,7 +573,10 @@ function AppContent() {
         text: msg.text
       }));
 
-      const response = await fetch(`${import.meta.env.BASE_URL}api/chat`, {
+      console.log("Sending request to backend...");
+      console.log("Waiting for response...");
+      
+      const response = await fetch(`/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -583,14 +590,14 @@ function AppContent() {
         signal: abortControllerRef.current.signal
       });
 
-      console.log(`[6] Response received: ${response.status} ${response.statusText}`);
+      console.log("Response received:", response.status);
       if (!response.ok) {
         let errorData = null;
         try {
           errorData = await response.json();
-          console.error("[ER] Error Response JSON:", errorData);
+          console.error("Error Response Details:", errorData);
         } catch (e) {
-          console.warn("[ER] Failed to parse error response JSON");
+          console.warn("Failed to parse error response JSON");
         }
 
         let errorMsg = errorData?.error || "Something went wrong. Try again.";
@@ -609,7 +616,7 @@ function AppContent() {
       }
 
       const data = await response.json();
-      console.log("[7] Success! Response data:", data);
+      console.log("Response data received");
 
       const aiMessage = {
         role: "model",
@@ -620,6 +627,7 @@ function AppContent() {
       };
 
       const finalMessages = [...currentHistory, aiMessage];
+      console.log("Response rendered");
       setChats(prev => prev.map(c => c.id === targetChatId ? { ...c, messages: finalMessages } : c));
 
       // Save to Firestore
@@ -640,6 +648,7 @@ function AppContent() {
           }).catch(err => console.warn("Auto-titling failed:", err));
       }
     } catch (error) {
+      console.log("Error occurred:", error.message);
       if (error.name === 'AbortError') {
         console.log("Request aborted.");
         return;
@@ -683,16 +692,40 @@ function AppContent() {
   };
 
   const submitSuggestion = async (s) => {
+    console.log("Suggestion clicked:", s);
+    if (!user) {
+      login();
+      return;
+    }
+
+    let targetId = activeChatId;
+    if (!targetId) {
+      console.log("No active chat, creating one for suggestion...");
+      const newChatId = Date.now().toString();
+      const newChat = {
+        id: newChatId,
+        userId: user.uid,
+        title: "New Chat",
+        messages: [],
+        pinned: false,
+        createdAt: new Date().toISOString()
+      };
+      setChats(prev => [newChat, ...prev]);
+      setActiveChatId(newChatId);
+      await setDoc(doc(db, "chats", newChatId), newChat);
+      targetId = newChatId;
+    }
+
     const userMessage = {
       role: "user",
       text: s,
       id: Date.now().toString(),
       timestamp: new Date().toISOString()
     };
-    const newMsgs = [...messages, userMessage];
-    setChats(prev => prev.map(c => c.id === activeChatId ? { ...c, messages: newMsgs } : c));
-    await updateChatMessages(activeChatId, newMsgs);
-    fetchAIResponse(s, newMsgs, activeChatId);
+    const newMsgs = [userMessage];
+    setChats(prev => prev.map(c => c.id === targetId ? { ...c, messages: newMsgs } : c));
+    await updateChatMessages(targetId, newMsgs);
+    fetchAIResponse(s, newMsgs, targetId);
   };
 
   const regenerate = () => {
@@ -730,17 +763,37 @@ function AppContent() {
   };
 
   const handleSubmit = async (e) => {
+    console.log("Form submitted");
     e.preventDefault();
     if (!user) {
+      console.log("User not logged in, triggering login...");
       login();
       return;
     }
     
     const textToSend = input.trim();
+    console.log("Message value:", textToSend);
     if (!textToSend || isLoading) return;
 
-    const currentChatId = activeChatId;
-    if (!currentChatId) return;
+    let currentChatId = activeChatId;
+    if (!currentChatId) {
+      console.log("No active chat, creating one...");
+      const newChatId = Date.now().toString();
+      const newChat = {
+        id: newChatId,
+        userId: user.uid,
+        title: "New Chat",
+        messages: [],
+        pinned: false,
+        createdAt: new Date().toISOString()
+      };
+      setChats(prev => [newChat, ...prev]);
+      setActiveChatId(newChatId);
+      await setDoc(doc(db, "chats", newChatId), newChat);
+      currentChatId = newChatId;
+    }
+
+    console.log("Starting send for chat:", currentChatId);
 
     const userMessage = {
       role: "user",
@@ -751,7 +804,13 @@ function AppContent() {
     
     setInput("");
     
-    const updatedMessages = [...messages, userMessage];
+    let updatedMessages = [];
+    if (activeChatId) {
+      updatedMessages = [...(chats.find(c => c.id === activeChatId)?.messages || []), userMessage];
+    } else {
+      // We just created currentChatId but activeChatId (state) is still null
+      updatedMessages = [userMessage];
+    }
     
     // Optimistic local update
     setChats(prev => prev.map(c => c.id === currentChatId ? { ...c, messages: updatedMessages } : c));
@@ -1122,6 +1181,10 @@ function AppContent() {
                   )}
                   <button 
                     type="submit" 
+                    onClick={(e) => {
+                      console.log("Button clicked");
+                      handleSubmit(e);
+                    }}
                     disabled={!input.trim() || isLoading} 
                     className={cn(
                       "p-2 rounded-xl transition-all shadow-xl active:scale-95",
