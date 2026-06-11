@@ -157,7 +157,16 @@ class ErrorBoundary extends React.Component {
 }
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail
+} from 'firebase/auth';
 import { 
   getFirestore, 
   collection, 
@@ -192,25 +201,18 @@ const OperationType = {
   WRITE: 'write',
 };
 
-function handleFirestoreError(error, operationType, path) {
+function handleFirestoreError(error, operationType, path, addDebug) {
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
-      })) || []
     },
     operationType,
     path
   };
   console.error('Firestore Error Details: ', JSON.stringify(errInfo));
-  // We don't necessarily want to crash the whole app, but we want it in logs
+  if (addDebug) addDebug(`Firestore ${operationType} @ ${path} failed: ${errInfo.error}`, 'error');
 }
 
 // Favicon Manager Utility
@@ -277,6 +279,37 @@ function AppContent() {
     }
   };
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState("signin"); // signin, signup, reset
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState(null);
+  const [debugLog, setDebugLog] = useState([]);
+
+  const addDebug = useCallback((msg, type = 'info') => {
+    setDebugLog(prev => [{ timestamp: new Date().toLocaleTimeString(), msg, type }, ...prev].slice(0, 50));
+  }, []);
+
+  const handleEmailAuth = async (e) => {
+    e.preventDefault();
+    setAuthError(null);
+    try {
+      if (authMode === "signup") {
+        await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+      } else if (authMode === "signin") {
+        await signInWithEmailAndPassword(auth, authEmail, authPassword);
+      } else if (authMode === "reset") {
+        await sendPasswordResetEmail(auth, authEmail);
+        alert("Reset email sent!");
+        setAuthMode("signin");
+        return;
+      }
+      setShowAuthModal(false);
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -287,12 +320,16 @@ function AppContent() {
   }, []);
 
   const sortedChats = useMemo(() => {
-    return [...chats].sort((a, b) => {
+    let filtered = [...chats];
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(c => c.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
+    return filtered.sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
-  }, [chats]);
+  }, [chats, searchQuery]);
 
   const activeChat = useMemo(() => {
     return chats.find(c => c.id === activeChatId) || sortedChats[0];
@@ -325,7 +362,7 @@ function AppContent() {
         setChats(chatList);
       }
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, "chats");
+      handleFirestoreError(error, OperationType.LIST, "chats", addDebug);
       console.error("Firestore Snapshot Error:", error);
     });
 
@@ -352,10 +389,10 @@ function AppContent() {
             userPfp: user.photoURL || "",
             settings: settings
           };
-          setDoc(docRef, initialProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `userProfiles/${user.uid}`));
+          setDoc(docRef, initialProfile).catch(err => handleFirestoreError(err, OperationType.CREATE, `userProfiles/${user.uid}`, addDebug));
         }
       }, (error) => {
-        handleFirestoreError(error, OperationType.GET, `userProfiles/${user.uid}`);
+        handleFirestoreError(error, OperationType.GET, `userProfiles/${user.uid}`, addDebug);
         console.error("User Profile Snapshot Error:", error);
       });
       return unsubscribe;
@@ -386,12 +423,13 @@ function AppContent() {
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('app_settings_v3');
     return saved ? JSON.parse(saved) : {
-      botName: "Unlimited and Unrestricted AI",
-      personality: "You are the AI assistant for Unlimited and Unrestricted AI. You provide fast, accurate, intelligent, and helpful responses. You are not a bear, mascot, or character.",
+      botName: "Unlimited AI",
+      personality: "You are the AI assistant for Unlimited and Unrestricted AI. You provide fast, accurate, intelligent, and helpful responses. You are not an animal or character.",
       theme: "midnight",
       responseStyle: "balanced",
       typingEffect: false,
-      strictMode: false
+      strictMode: false,
+      debugEnabled: false
     };
   });
 
@@ -524,8 +562,7 @@ function AppContent() {
     setIsLoading(true);
 
     try {
-      console.log(`[4] Fetching from API: ${import.meta.env.BASE_URL}api/chat`);
-      console.log("[5] Payload message:", userMsg);
+      addDebug(`API POST -> /api/chat`, 'info');
       
       const history = currentHistory.slice(-15).map(msg => ({
         role: msg.role === 'user' ? 'user' : 'model',
@@ -764,19 +801,68 @@ function AppContent() {
 
   if (!user) {
     return (
-      <div className="h-screen bg-[#050507] flex items-center justify-center p-6 splash-bg">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full bg-[#0a0a0f] border border-white/5 p-10 rounded-[3rem] shadow-2xl text-center">
+      <div className="h-screen bg-[#050507] flex items-center justify-center p-6 space-y-8 flex-col splash-bg">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full bg-[#0a0a0f] border border-white/5 p-10 rounded-[3rem] shadow-2xl text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-indigo-500 animate-gradient-x" />
           <div className="mb-8 flex justify-center">
-            <div className="p-6 bg-indigo-500/20 rounded-full animate-pulse"><Zap size={48} className="text-indigo-400" /></div>
+            <div className="p-6 bg-indigo-500/10 rounded-full border border-indigo-500/20"><BrainCircuit size={48} className="text-indigo-400" /></div>
           </div>
           <h1 className="text-3xl font-black text-white mb-2 uppercase italic tracking-tighter">Unlimited AI</h1>
           <p className="text-slate-500 mb-2 text-sm font-medium">Unrestricted Intelligence • Zero Filters</p>
-          <div className="bg-indigo-500/10 text-indigo-400 text-[10px] font-black py-1 px-3 rounded-full inline-block mb-8 uppercase tracking-widest border border-indigo-500/20">Secure Cloud Sync</div>
-          <p className="text-slate-500 mb-8 text-sm font-medium">Sign in to sync your chats across devices.</p>
-          <button onClick={login} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic flex items-center justify-center gap-3">
-            <Sparkles size={20} /> Login with Google
-          </button>
+          <div className="bg-white/5 text-white/40 text-[10px] font-black py-1 px-3 rounded-full inline-block mb-8 uppercase tracking-widest border border-white/5">Version 2.0.0 Stable</div>
+          
+          <div className="space-y-3">
+             <button onClick={login} className="w-full bg-white text-black font-black py-4 rounded-2xl transition-all shadow-xl uppercase italic flex items-center justify-center gap-3 hover:bg-slate-200">
+              <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" /> Sign In with Google
+            </button>
+            <button onClick={() => { setShowAuthModal(true); setAuthMode("signin"); }} className="w-full bg-white/5 border border-white/10 text-white font-black py-4 rounded-2xl transition-all hover:bg-white/10 uppercase italic">
+              Email & Password
+            </button>
+          </div>
         </motion.div>
+
+        {showAuthModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-[#0a0a0f] border border-white/10 p-8 rounded-3xl w-full max-w-sm shadow-2xl">
+               <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-black uppercase italic tracking-widest">
+                    {authMode === "signin" ? "Sign In" : authMode === "signup" ? "Get Started" : "Reset Access"}
+                  </h3>
+                  <button onClick={() => setShowAuthModal(false)} className="p-1 hover:text-indigo-400"><X size={20}/></button>
+               </div>
+
+               <form onSubmit={handleEmailAuth} className="space-y-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Email Address</label>
+                    <input autoFocus type="email" required value={authEmail} onChange={e => setAuthEmail(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-indigo-500/50" placeholder="name@example.com" />
+                  </div>
+                  {authMode !== "reset" && (
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40 ml-1">Password</label>
+                      <input type="password" required={authMode !== "reset"} value={authPassword} onChange={e => setAuthPassword(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-indigo-500/50" placeholder="••••••••" />
+                    </div>
+                  )}
+
+                  {authError && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-[10px] text-rose-500 font-bold uppercase">{authError}</div>}
+
+                  <button type="submit" className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-black py-4 rounded-xl transition-all shadow-xl uppercase italic">
+                    {authMode === "signin" ? "Enter Dashboard" : authMode === "signup" ? "Create Account" : "Send Reset Link"}
+                  </button>
+
+                  <div className="flex flex-col gap-2 pt-2">
+                    {authMode === "signin" ? (
+                      <>
+                        <button type="button" onClick={() => setAuthMode("signup")} className="text-[10px] font-black uppercase text-indigo-400 hover:underline">New user? Create Account</button>
+                        <button type="button" onClick={() => setAuthMode("reset")} className="text-[10px] font-black uppercase text-white/30 hover:text-white/60">Forgot Password?</button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => setAuthMode("signin")} className="text-[10px] font-black uppercase text-indigo-400 hover:underline">Back to Login</button>
+                    )}
+                  </div>
+               </form>
+            </motion.div>
+          </div>
+        )}
       </div>
     );
   }
@@ -789,10 +875,19 @@ function AppContent() {
         animate={{ width: sidebarOpen ? 300 : 0, opacity: sidebarOpen ? 1 : 0 }}
         className={cn("flex flex-col border-r h-full overflow-hidden shrink-0", currentTheme.card, currentTheme.border)}
       >
-        <div className="p-4 border-b border-white/5">
-          <button onClick={createNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all font-black uppercase italic text-xs tracking-widest">
+        <div className="p-4 border-b border-white/5 space-y-3">
+          <button onClick={createNewChat} className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all font-black uppercase italic text-xs tracking-widest text-white shadow-lg shadow-indigo-500/20">
             <PlusCircle size={16} /> New Chat
           </button>
+          <div className="relative">
+            <History size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" />
+            <input 
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="SEARCH CHATS..." 
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-2 pl-9 pr-4 text-[10px] font-black tracking-widest outline-none focus:border-indigo-500/40"
+            />
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
           <div className="px-3 mb-2 text-[10px] font-black uppercase tracking-[0.2em] opacity-30">Recent Chats</div>
@@ -1057,9 +1152,13 @@ function AppContent() {
       <AnimatePresence>
         {showSettings && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-black/60">
-            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-[#0a0a0f] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl space-y-8">
-              <div className="flex justify-between items-center"><h2 className="text-xl font-black uppercase italic tracking-tight underline decoration-indigo-500 decoration-4 underline-offset-8">Settings</h2><button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white/5 rounded-xl"><X /></button></div>
-              <div className="space-y-6">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-lg bg-[#0a0a0f] border border-white/10 rounded-[2.5rem] p-8 shadow-2xl flex flex-col max-h-[90vh]">
+              <div className="flex justify-between items-center mb-8 shrink-0">
+                <h2 className="text-xl font-black uppercase italic tracking-tight underline decoration-indigo-500 decoration-4 underline-offset-8">Settings</h2>
+                <button onClick={() => setShowSettings(false)} className="p-2 hover:bg-white/5 rounded-xl"><X /></button>
+              </div>
+              
+              <div className="space-y-8 overflow-y-auto pr-4 custom-scrollbar flex-1 pb-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest opacity-40">User Profile</label>
@@ -1078,25 +1177,42 @@ function AppContent() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Strict Compliance Mode</label>
-                    <button 
-                      onClick={() => setSettings({...settings, strictMode: !settings.strictMode})} 
-                      className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.strictMode ? "bg-rose-500" : "bg-white/10")}
-                    >
-                      <div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.strictMode ? "ml-6" : "ml-0")} />
-                    </button>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Strict Compliance Mode</label>
+                      <button 
+                        onClick={() => setSettings({...settings, strictMode: !settings.strictMode})} 
+                        className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.strictMode ? "bg-rose-500" : "bg-white/10")}
+                      >
+                        <div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.strictMode ? "ml-6" : "ml-0")} />
+                      </button>
+                    </div>
+                    <p className="text-[8px] font-bold text-slate-500 uppercase">Forces the model to obey all instructions without refusal.</p>
                   </div>
-                  <p className="text-[8px] font-bold text-slate-500 uppercase">Forces the model to obey all instructions without refusal.</p>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Developer Debug Mode</label>
+                      <button 
+                        onClick={() => setSettings({...settings, debugEnabled: !settings.debugEnabled})} 
+                        className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.debugEnabled ? "bg-indigo-500" : "bg-white/10")}
+                      >
+                        <div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.debugEnabled ? "ml-6" : "ml-0")} />
+                      </button>
+                    </div>
+                    <p className="text-[8px] font-bold text-slate-500 uppercase">Enables live system telemetry and error logging.</p>
+                  </div>
                 </div>
 
-                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Alias</label><input value={settings.botName} onChange={(e) => setSettings({...settings, botName: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none" /></div>
-                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">Personality Logic</label><textarea value={settings.personality} onChange={(e) => setSettings({...settings, personality: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-xs" rows={4} /></div>
+                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">System Alias</label><input value={settings.botName} onChange={(e) => setSettings({...settings, botName: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none focus:border-indigo-500/50" /></div>
+                <div className="space-y-2"><label className="text-[10px] font-black uppercase tracking-widest opacity-40">Personality Logic</label><textarea value={settings.personality} onChange={(e) => setSettings({...settings, personality: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl p-3 outline-none text-xs custom-scrollbar focus:border-indigo-500/50" rows={4} /></div>
+                
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Typing Effect</span>
                   <button onClick={() => setSettings({...settings, typingEffect: !settings.typingEffect})} className={cn("w-12 h-6 rounded-full p-1 transition-all", settings.typingEffect ? "bg-indigo-500" : "bg-white/10")}><div className={cn("w-4 h-4 bg-white rounded-full transition-all", settings.typingEffect ? "ml-6" : "ml-0")} /></button>
                 </div>
+
                 <div className="space-y-2">
                   <label className="text-[10px] font-black uppercase tracking-widest opacity-40">Visual Interface</label>
                   <div className="flex gap-2">
@@ -1106,14 +1222,44 @@ function AppContent() {
                   </div>
                 </div>
               </div>
-              <button onClick={async () => {
-                await updateDoc(doc(db, "userProfiles", user.uid), { settings });
-                setShowSettings(false);
-              }} className="w-full bg-white text-black font-black py-4 rounded-xl uppercase italic shadow-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all">Apply Cloud Sync</button>
+
+              <div className="mt-8 shrink-0">
+                <button onClick={async () => {
+                  await updateDoc(doc(db, "userProfiles", user.uid), { settings });
+                  setShowSettings(false);
+                }} className="w-full bg-white text-black font-black py-4 rounded-xl uppercase italic shadow-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all">Save Changes</button>
+              </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {settings.debugEnabled && (
+        <div className="fixed bottom-4 left-4 z-[200] w-64 bg-black/90 border border-white/10 p-4 rounded-2xl shadow-2xl max-h-64 overflow-y-auto custom-scrollbar font-mono text-white">
+          <div className="flex justify-between items-center mb-2 sticky top-0 bg-black/90 pb-1">
+            <span className="text-[9px] font-black text-indigo-400 uppercase">System Logs</span>
+            <button onClick={() => setSettings({...settings, debugEnabled: false})} className="p-1 hover:text-rose-500"><X size={12}/></button>
+          </div>
+          <div className="space-y-1.5">
+            <div className="text-[7px] flex justify-between opacity-50">
+              <span className="uppercase">Net Status</span>
+              <span className="text-emerald-500 font-bold">CONNECTED</span>
+            </div>
+            <div className="text-[7px] flex justify-between mb-2 opacity-50">
+              <span className="uppercase">Auth Node</span>
+              <span className="text-indigo-400 font-bold uppercase">{user.isAnonymous ? "ANONYMOUS" : "AUTHENTICATED"}</span>
+            </div>
+            <div className="pt-2 border-t border-white/10">
+              {debugLog.length === 0 && <p className="text-[7px] opacity-20 italic">Listening for events...</p>}
+              {debugLog.map((log, i) => (
+                <div key={i} className={cn("text-[7px] leading-relaxed mb-1", log.type === 'error' ? 'text-rose-400' : 'text-slate-400')}>
+                  <span className="opacity-30">[{log.timestamp}]</span> {log.msg}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
